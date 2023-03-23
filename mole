@@ -1,0 +1,618 @@
+#!/bin/bash
+############################################
+#                                          #
+#   VUT FIT IOS 1 project                  #
+#                                          #
+#   project: mole                          #
+#                                          #
+#   autor: xkukht01                        #
+#                                          #
+############################################
+
+POSIXLY_CORRECT=yes
+#----------------------------------------------------------   variables -----------------------------------------------------------------------
+# in script will be use external variable MOLE_RC containing the path to the file containing the full history of changes using the mole script
+list=""  # flag for existing key-word list
+secret=""  # flag for existing key-word secret
+m=""  # flag for existing opt -m
+a_date=""  # flag for existing opt -a
+b_date=""  # flag for existing opt -b
+g=""  # flag for existing opt -g
+g_fil=""  # string for request about group
+dir=""  # string for request about directory
+
+#-----------------------------------------------------------   function  -----------------------------------------------------------------------
+
+file_name_regex='^([a-zA-Z0-9_/\.-]+)\.[a-zA-Z]{1,}$'  # regex for check name of file or name+adres
+date_regex='^[0-9]{4}-[0-9]{2}-[0-9]{2}$'  # regex for check formate date in filter with opt -a/-b; YYYY-MM-DD
+name_user=$(whoami)  # name of user
+
+
+
+write_help(){  # function for write info about mole.sh
+    echo '
+    mole – wrapper pro efektivní použití textového editoru s možností automatického výběru
+    nejčastěji či posledně modifikovaného souboru.
+    
+    POUŽITÍ:
+                mole -h
+                mole [-g GROUP] FILE
+                mole [-m] [FILTERS] [DIRECTORY]
+                mole list [FILTERS] [DIRECTORY]
+    POPÍS:
+           *  -h – Vypíše nápovědu k použití skriptu (volba secret-log by neměla být
+                  v nápovědě uvedena; nechceme krtka upozornit, že sbíráme informace).
+          
+           *  mole [-g GROUP] FILE – Zadaný soubor bude otevřen. Pokud byl zadán přepínač
+                                     -g, dané otevření souboru bude zároveň přiřazeno do skupiny 
+                                     s názvem GROUP. GROUP může být název jak existující, tak nové skupiny.
+          
+           * mole [-m] [FILTERS] [DIRECTORY] – Pokud DIRECTORY odpovídá existujícímu adresáři, skript z daného
+                                               adresáře vybere soubor, který má být otevřen.
+                                               Pokud nebyl zadán adresář, předpokládá se aktuální adresář.
+                                               Pokud bylo v daném adresáři editováno skriptem více souborů, vybere 
+                                               se soubor, který byl pomocí skriptu otevřen (editován) jako poslední.
+                                               Pokud byl zadán argument -m, tak skript vybere soubor, který byl 
+                                               pomocí skriptu otevřen (editován) nejčastěji.
+                                               Pokud bude při použití přepínače -m nalezeno více souborů se stejným 
+                                               maximálním počtem otevření, může mole vybrat kterýkoliv z nich.
+                                               Výběr souboru může být dále ovlivněn zadanými filtry FILTERS.
+                                               Pokud nebyl v daném adresáři otevřen (editován) ještě žádný soubor, 
+                                               případně žádný soubor nevyhovuje zadaným filtrům, jedná se o chybu.
+          
+           * mole list [FILTERS] [DIRECTORY] – Skript zobrazí seznam souborů, které byly v daném adresáři otevřeny
+                                               (editovány) pomocí skriptu.
+                                               Pokud nebyl zadán adresář, předpokládá se aktuální adresář.
+                                               Seznam souborů může být filtrován pomocí FILTERS.
+                                               Seznam souborů bude lexikograficky seřazen a každý soubor bude uveden
+                                               na samostatném řádku.
+                                               Každý řádek bude mít formát FILENAME:<INDENT>GROUP_1,GROUP_2,..., 
+                                               kde FILENAME je jméno souboru (i s jeho případnými příponami), 
+                                               <INDENT> je počet mezer potřebných k zarovnání a GROUP_* jsou 
+                                               názvy skupin, u kterých je soubor evidován.
+                                               Seznam skupin bude lexikograficky seřazen.
+                                               Pokud budou skupiny upřesněny pomocí přepínače -g (viz sekce FILTRY),
+                                               uvažujte při výpisu souborů a skupin pouze záznamy patřící do těchto
+                                               skupin.
+                                               Pokud soubor nepatří do žádné skupiny, bude namísto seznamu skupin 
+                                               vypsán pouze znak -.
+                                               Minimální počet mezer použitých k zarovnání (INDENT) je jedna. 
+                                               Každý řádek bude zarovnán tak, aby seznam skupin začínal na stejné pozici. 
+                                               Tedy např:
+                                                         FILE1:  grp1,grp2
+                                                         FILE10: grp1,grp3
+                                                         FILE:   -
+    FILTRY:
+            FILTERS může být kombinace následujících filtrů
+            (každý může být uveden maximálně jednou):
+
+                                                       * [-g GROUP1[,GROUP2[,...]]] – Specifikace skupin. Soubor bude
+                                                         uvažován (pro potřeby otevření nebo výpisu) pouze tehdy, 
+                                                         pokud jeho spuštění spadá alespoň do jedné z těchto skupin.
+                                                       
+                                                       * [-a DATE] - Záznamy o otevřených (editovaných) souborech 
+                                                         před tímto datem nebudou uvažovány.
+                                                       
+                                                       * [-b DATE] - Záznamy o otevřených (editovaných) souborech po
+                                                         tomto datu nebudou uvažovány. Argument DATE je ve formátu 
+                                                         YYYY-MM-DD.
+    NASTAVENI A KONFIGURACE:
+                         
+            *  Skript si pamatuje informace o svém spouštění v souboru, který je dán proměnnou 
+               MOLE_RC. Formát souboru není specifikován. Pokud není proměnná nastavena, jedná
+               se o chybu. Pokud soubor na cestě dané proměnnou MOLE_RC neexistuje, soubor bude
+               vytvořen včetně cesty k danému souboru (pokud i ta neexistuje).
+                         
+            *  Skript spouští editor, který je nastaven v proměnné EDITOR. Pokud není proměnná 
+               EDITOR nastavená, respektuje proměnnou VISUAL. Pokud ani ta není nastavená, 
+               použije se příkaz vi.
+    
+
+    autor scriptu: xkukht01
+    '
+}
+open1_file(){  # function for open and edit file
+    local file_name
+    local path
+    local time_edit
+    local epoch_time
+    local new_group
+    local sorted_new_group
+    file_name=$1    # file name
+
+    if [ -z "$EDITOR" ]; then  # if not EDITOR
+        if [ -z "$VISUAL" ]; then  # if not VISUAL
+            vi "$file_name";
+        else
+            $VISUAL "$file_name"
+        fi
+    else
+        $EDITOR "$file_name"
+    fi
+
+	file_name=$(realpath "$file_name")  # real path of file #if not realpath!!!!!!!!!!!!!!!!!
+    path=$(dirname "$file_name")  # only path
+    time_edit=$(date +"%Y-%m-%d_%H-%M-%S")  # approximate time of edit
+    epoch_time=$(date +%s)   # aproximate time from
+
+    # awk work for edit group of edits file in MOLE_RC
+    new_group=$(awk -v f_n="$file_name" -v gr="$g" '   
+        BEGIN {
+            FS=";"
+            new = ""
+
+            if (length(gr)==0){
+                gr = "-"
+            }
+        }
+
+        {
+            if ($2 == f_n) {
+                new = $3
+            }
+        }
+
+        END {
+            if ( length(new) == 0 || new == "-" ) {
+                new = gr
+            }
+            else if ( gr != "-" ){
+                found = 0
+                split(new, sub_new, ",")
+                for (x in sub_new){
+                    if ( sub_new[x] == gr ){
+                        found = 1
+                        break
+                    }
+                    continue
+                }
+                if ( !found ) {
+                    new = new "," gr    
+                }
+            }
+            print new
+        }
+    ' "$MOLE_RC")
+    sorted_new_group=$( echo "$new_group" | sed 's/,/\n/g' | sort | paste -s -d ',')  # sort sequence group in lexicograph 
+    sed -i -E "s|^([^;]*;${file_name};)([^;]*)(.*)$|\1${sorted_new_group}\3|g" "$MOLE_RC"  # edit group in all chenges of actual file
+    echo "$path;$file_name;$sorted_new_group;$time_edit;$epoch_time" >> "$MOLE_RC"  # add in MOLE_RC data about new edit
+
+    return 0  # good work
+}
+
+open2_file(){  # function for open and edit file based on filter selection
+    local dir_work
+    local dont_exist
+    local found
+    local most_edit_file
+    local last_edit_files
+    dir_work=""  # var for directory for parse file
+    dont_exist=""  # string for delete files
+    found=0  # var for cycles searching actual exist file
+
+    if [ -z "$dir" ]; then  # if [DIRECTORY] empty -> [DIRECTORY] = actual directory 
+        dir_work=$(pwd)
+    else
+        if [ -d "$dir" ]; then  #  [DIRECTORY] exist 
+            dir_work="$dir"
+        else
+            echo "Error. Unexist directory" >&2; return 1  # if dont exist -> ERROR
+        fi
+    fi
+
+    if [ -n "$m" ]; then  # search the most edit file based in filter -a, -b, [GROUPR] and [DIRECTORY] 
+        while [ "$found" -eq 0 ]; do
+            most_edit_file=$(awk -v d="$dir_work" -v a="$a_date" -v a_d="$(date -d "$a_date 23:59:59" +%s)" -v b="$b_date" -v b_d="$(date -d "$b_date 00:00:00" +%s)" -v g_f="$g_fil" -v dont_e="$dont_exist" -F";" '
+                BEGIN { found_file = ""; }
+                {
+                    count_of_edit_file[$2]++
+                    if (count_of_edit_file[$2] > max_count && $1 == d){
+                        d_e = 0
+                        if( dont_e != "" ){
+                            split(dont_e, arr_dont_e, ";")
+                            for( i in arr_dont_e ) {
+                                if ( arr_dont_e[i] == $2 ){
+                                    d_e = 1
+                                }
+                            }
+                            if( d_e == 1){
+                                next
+                            }
+                        }
+                        if ( a != "" ){
+                            if ( a_d >= $5 ) {
+                                next
+                            }
+                        }
+                        if ( b != "" ){
+                            if ( b_d <= $5 ) {
+                                next
+                            }
+                        }
+                        if ( g_f != "" ) {
+                            found=0
+                            split($3, sub_line, ",")
+                            split(g_f, sub_g, ",")
+                            for (x in sub_g) {
+                                for (y in sub_line) {
+                                    if ( sub_g[x] == sub_line[y] ) {
+                                        found = 1
+                                        break
+                                    }
+                                }
+                                if ( found == 1) {
+                                    break
+                                }
+                            }
+                            if ( found == 0 ){
+                                next
+                            }
+                        }
+                        max_count = count_of_edit_file[$2]
+                        found_file = $2
+                    }
+                }
+                END {
+                    print found_file
+                }
+            ' "$MOLE_RC")
+                if [ -z "$most_edit_file" ]; then {  # if file dont exist, there is no point in looking for it further
+                    return 1
+                }
+                fi
+                if [ -e "$most_edit_file" ]; then {  # found exists file
+                    break
+                }
+                fi
+                dont_exist="$dont_exist;$most_edit_file"  # in proces of search
+        done
+
+        open1_file "$most_edit_file"  # if found file -> edit file
+    else
+        while [ $found -eq 0 ]; do
+            last_edit_files=$(awk -v d="$dir_work" -v a="$a_date" -v a_d="$(date -d "$a_date 23:59:59" +%s)" -v b="$b_date" -v b_d="$(date -d "$b_date 00:00:00" +%s)" -v g_f="$g_fil" -v dont_e="$dont_exist" -F";" '
+                BEGIN { found_file = ""; }
+                {
+                    if ($1 == d){
+                        d_e = 0
+                        if( dont_e != "" ){
+                            split(dont_e, arr_dont_e, ";")
+                            for( i in arr_dont_e ) {
+                                if ( arr_dont_e[i] == $2 ){
+                                    d_e = 1
+                                }
+                            }
+                            if( d_e == 1){
+                                next
+                            }
+                        }
+                        if ( a != "" ){
+                            if ( a_d >= $5 ) {
+                                next
+                            }
+                        }
+                        if ( b != "" ){
+                            if ( b_d <= $5 ) {
+                                next
+                            }
+                        }
+                        if( g_f != "" ){
+                            found=0
+                            split($3, sub_line, ",")
+                            split(g_f, sub_g, ",")
+                            for (x in sub_g) {
+                                for (y in sub_line) {
+                                    if ( sub_g[x] == sub_line[y] ) {
+                                        found = 1
+                                        break
+                                    }
+                                }
+                                if ( found == 1) {
+                                    break
+                                }
+                            }
+                            if ( found == 0 ){
+                                next
+                            }
+                        }
+
+                        found_file = $2 
+                    }
+                }
+
+                END {
+                    print found_file
+                }
+            ' "$MOLE_RC")
+            if [ -z "$last_edit_files" ]; then {  # if file dont exist, there is no point in looking for it further
+                return 1
+            }
+            fi
+            if [ -e "$last_edit_files" ]; then {  # found exists file
+                break
+            }
+            fi
+            dont_exist="$dont_exist;$last_edit_files"  # in proces of search
+        done
+
+        open1_file "$last_edit_files"  # if found file -> edit file
+
+    fi
+    return 0    # good work
+}
+
+
+list(){  # function for writing out files and their groups based on filter -a, -b, [GROUPS]
+    local dir_work
+    dir_work=""  # var for directory for parse file
+    if [ ! -d "$dir" ]; then  # if [DIRECTORY] empty -> [DIRECTORY] = actual directory
+        dir_work=$(pwd)
+    else
+        dir_work="$dir"  
+    fi
+
+    # by awk and sort writing out files and their groups found based on the search results
+    awk -v d="$dir_work" -v a="$a_date" -v a_d="$(date -d "$a_date 23:59:59" +%s)" -v b="$b_date" -v b_d="$(date -d "$b_date 00:00:00" +%s)" -v g_f="$g_fil" -F";" '
+        BEGIN {
+            delete list_name_file
+            delete file_arr
+            delete group_arr
+            delete big_size_arr 
+            max_tab = 0
+            file_count = 0
+        }
+        {
+            if ( $1 == d ) {
+                group_found = ""
+                if ( list_name_file[$2] == 1 ) {
+                    next
+                }
+                else {
+                    list_name_file[$2] = 1
+                }
+                if ( a != "" ){
+                    if ( a_d >= $5 ) {
+                        next
+                    }   
+                }
+                if ( b != "" ){
+                    if ( b_d <= $5 ) {
+                        next
+                    }   
+                }
+                if( g_f != "" ){
+                    split($3, sub_line, ",")
+                    split(g_f, sub_g, ",")
+                    found=0
+                    for (x in sub_g) {
+                        for (y in sub_line) {
+                            if ( sub_g[x] == sub_line[y] ) {
+                                found=1
+                                if(group_found == ""){
+                                    group_found = sub_g[x]    
+                                }
+                                else{
+                                    group_found = group_found","sub_g[x]
+                                }
+                            }
+                        }
+                    }
+                    if ( found == 0 ){
+                        next
+                    }
+                }
+                split($2, path, "/")
+                count=0
+                for ( i in path ) {
+                    count++
+                }
+                file_count++
+                file_arr[file_count] = path[count]
+                group_arr[file_count] = group_found
+                if ( length(file_arr[file_count]) > max_tab ){
+                    max_tab = length(file_arr[file_count])
+                }
+            }
+        }
+        END {
+            for ( i = 1; i <= file_count; i++){
+                size_act_tab =  max_tab - length(file_arr[i]) + 1
+                act_tab = ""
+                for ( j = 1; j <= size_act_tab; j++){
+                    act_tab = act_tab " "
+                }
+                print file_arr[i] ":" act_tab group_arr[i] | "sort"
+            }
+        }
+    ' "$MOLE_RC"
+
+    return 0  # good work
+}
+
+secret_log_func(){  # function for creating a file secret-log
+    local time_create
+    local name_secret
+    if [ ! -d "$HOME/.mole" ]; then  # check existing of directory .mole; if dont exist -> create
+        mkdir "$HOME/.mole"
+    fi
+    time_create=$(date +"%Y-%m-%d_%H-%M-%S")  # approximate time of creating secret-log
+    name_secret="$HOME/.mole/log_${name_user}_${time_create}.bz2"  # must be in home directory!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    touch "$name_secret"  # creating secret-log
+
+    awk -v d="$dir" -v a="$a_date" -v a_d="$(date -d "$a_date 23:59:59" +%s)" -v b="$b_date" -v b_d="$(date -d "$b_date 00:00:00" +%s)" -F";" '
+        BEGIN {
+            delete secret_file
+            all = 0
+            if (d == ""){
+                all = 1
+            }
+            else {
+                split(d, dir_arr, " ")
+            }
+        }
+        {
+            if ( all == 1 ) {
+                if ( a != "" ){
+                    if ( a_d >= $5 ) {
+                        next
+                    }   
+                }
+                if ( b != "" ){
+                    if ( b_d <= $5 ) {
+                        next
+                    }   
+                }
+                secret_file[$2] = secret_file[$2] ";" $4
+            }
+            else{
+                for ( i in dir_arr ) {
+                    if ( dir_arr[i] == $1 ){
+                        if ( a != "" ){
+                            if ( a_d >= $5 ) {
+                                next
+                            }   
+                        }
+                        if ( b != "" ){
+                            if ( b_d <= $5 ) {
+                                next
+                            }   
+                        }
+                        secret_file[$2] = secret_file[$2] ";" $4
+                    }
+                }
+            }
+        }
+        END {
+            for ( i in secret_file) {
+                print i secret_file[i] | "sort"
+            }
+        }
+    ' "$MOLE_RC" | bzip2 > "$name_secret"  # file compression -> log_file
+
+    return 0  # good work
+}
+
+
+
+#----------------------------------------------------------------------------------------------------------------------------------------------
+
+#---------------------------------------------------------  START WORKING  --------------------------------------------------------------------
+
+# CHECK MOLE_RC, EDITOR AND REALPATH
+
+if echo "$MOLE_RC" | grep -qE "$file_name_regex"; then  #[[ "$MOLE_RC" =~ $file_name_regex ]]
+    if [ -z "$MOLE_RC" ]; then   # check set variable MOLE_RC, if not -> error
+        echo "Error! Variable MOLE_RC is not set."; exit 1  
+    else
+        if ! [ -e "$MOLE_RC" ]; then
+            touch "$MOLE_RC"
+        fi
+    fi
+else
+    echo "Error! The file forwarding for the MOLE_RC variable is poorly spelled out." >&2; exit 1  # if not exist MOLE_RC
+fi
+
+check_realpath=$(command -v realpath)  # check availability of utility realpath; if does not exits -> ERROR
+if [ "$check_realpath" == "" ]; then
+    echo "Error! In system does not exist utility realpath" >&2; exit 1
+fi
+
+# PARSE ARG LINE
+
+if [ "$1" = "-h" ]; then  # parse key-word and opt
+    write_help
+    exit 0
+elif [ "$1" = "list" ] && [ $# -ge 1 ]; then
+    list=1
+    shift
+elif [ "$1" = "secret-log" ] && [ $# -ge 1 ]; then 
+    secret=1
+    shift
+elif [ "$1" = "-g" ] && [ $# -eq 3 ]; then  # mole -g [GROUP] FILE
+    if [ ! -d "$3" ] && echo "$3" | grep -qE "$file_name_regex"; then # must be FILE , not DIRECTORY
+        g="$2"
+        open1_file "$3"
+        exit 0
+    fi
+elif [ "$1" = "-m" ]; then
+    m=1
+    shift
+fi
+
+while getopts ":a:b:g:" filter; do  # parse filters and checks for unacceptable options or combinations of options
+    case "$filter" in
+    a)  
+        if [ -z "$a_date" ]; then                                           # [FILTER]: [-a DATE]
+            if echo "$OPTARG" | grep -qE "$date_regex"; then
+                a_date="$OPTARG"
+            else
+                echo "Error! An Unacceptable date" >&2; exit 1
+            fi
+        else
+            echo "An unacceptable combination of arguments" >&2; exit 1
+        fi
+        ;;
+    b)  
+        if [ -z "$b_date" ]; then                                              # [FILTER]: [-b DATE]
+            if echo "$OPTARG" | grep -qE "$date_regex"; then
+                b_date="$OPTARG"
+            else
+                echo "Error! An Unacceptable date" >&2
+                exit 1
+            fi
+        else
+            echo "An unacceptable combination of arguments" >&2; exit 1
+        fi
+        ;;
+    g) 
+        if [ -z "$g" ]  && [ -z "$secret" ]; then  # [FILTER]: [-g GROUP]
+            g_fil="$OPTARG"
+        else
+            echo "An unacceptable combination of arguments" >&2; exit 1
+        fi
+        ;;
+    \?)
+        echo "Error! An Unacceptable options or combinations of options" >&2; exit 1
+        ;;
+    *)
+        echo "bad"
+        exit 1
+    esac
+done
+shift $((OPTIND-1))
+
+
+if [ $# -eq 1 ]; then  # check FILE and DIRECTORY
+    if [ -n "$m" ] && [ ! -d "$1" ]; then
+        echo "Error! Directory dont exist" >&2; exit 1
+    elif [ -z "$a" ] && [ -z "$b" ] && [ -z "$list" ] && [ -z "$secret" ] && [ -z "$m" ]; then  # start first editing file
+        g="-"
+        open1_file "$1"
+	    exit 0 
+    else 
+        dir="$1"
+    fi
+elif [ -n "$secret" ] && [ $# -ge 1 ]; then
+    for i in "$@"; do
+        if [ -d "$i" ]; then
+            dir="$dir $i"
+        fi
+    done
+elif [ "$#" -ne 0 ]; then  # unsuccesful parametrs
+    echo "Error! Unsuccesful parametrs" >&2; exit 1
+fi
+
+# START WORK PROGRAM ( without the first editing, was earlier )
+if [ -n "$list" ]; then  # for start writing files and groups
+    list
+elif [ -n "$secret" ]; then  # for start creating secret-log
+    secret_log_func
+else  # for start editing files based on filter  (second editing)
+    open2_file
+    if [ $? -eq 1 ]; then
+        echo "echo "Error. Dont found file"" >&2; exit 1
+    fi
+fi
+#----------------------------------------------------------------------------------------------------------------------------------------------
+
+exit 0  # good end work
